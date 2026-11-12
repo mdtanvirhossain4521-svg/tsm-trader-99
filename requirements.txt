@@ -2,4 +2,3 @@ streamlit
 pytz
 pillow
 google-generativeai
-streamlit-autorefresh

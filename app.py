@@ -3,7 +3,11 @@ import datetime
 import pytz
 import time
 import random
+import json
+import os
+import uuid
 from PIL import Image
+from streamlit_autorefresh import st_autorefresh
 
 # ১. পেজ কনফিগারেশন ও ব্রাউজার ট্যাব সেটআপ
 st.set_page_config(
@@ -12,13 +16,16 @@ st.set_page_config(
     layout="centered"
 )
 
+# লাইভ টাইমার এবং রিয়েল-টাইম ইউজার ট্র্যাকিংয়ের জন্য অটো-রিফ্রেশ (প্রতি ৫ সেকেন্ড পর পর ব্যাকগ্রাউন্ড সিঙ্ক)
+st_autorefresh(interval=5000, limit=None, key="live_tracker_refresh")
+
 # স্টাইল ও ডিজাইন কাস্টমাইজেশন
 st.markdown("""
     <style>
     .main-title { text-align: center; color: #FFD700; font-weight: bold; }
     .sub-text { text-align: center; color: #AAAAAA; }
     .signal-box { padding: 20px; border-radius: 10px; background-color: #1E1E1E; border: 1px solid #00E676; text-align: center; }
-    .admin-box { padding: 15px; border-radius: 8px; background-color: #262626; border: 1px solid #FFD700; margin-bottom: 10px; }
+    .admin-box { padding: 12px; border-radius: 8px; background-color: #262626; border: 1px solid #FFD700; margin-bottom: 10px; font-size: 13px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -27,6 +34,52 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
+if "user_id" not in st.session_state:
+    st.session_state.user_id = str(uuid.uuid4())[:8]
+
+# লাইভ ইউজার ট্র্যাকিং ফাংশন (JSON ফাইলের মাধ্যমে)
+TRACKER_FILE = "active_users.json"
+
+def update_user_activity(user_id, role, user_agent):
+    data = {}
+    if os.path.exists(TRACKER_FILE):
+        try:
+            with open(TRACKER_FILE, "r") as f:
+                data = json.load(f)
+        except:
+            data = {}
+            
+    current_time = time.time()
+    
+    # ব্রাউজার ইউজার এজেন্ট থেকে ডিভাইস চেনার সহজ উপায়
+    device_name = "Desktop / PC"
+    if "Mobile" in user_agent:
+        device_name = "Android Mobile"
+    elif "iPhone" in user_agent or "iPad" in user_agent:
+        device_name = "iOS / iPhone"
+
+    data[user_id] = {
+        "last_seen": current_time,
+        "device": device_name,
+        "role": role
+    }
+    
+    # ৩০ সেকেন্ডের বেশি সময় ধরে রেসপন্স না করলে তাদের অফলাইন ধরে ফিল্টার করা হবে
+    active_users = {}
+    offline_count = 0
+    for uid, info in data.items():
+        if current_time - info["last_seen"] < 30:
+            active_users[uid] = info
+        else:
+            offline_count += 1
+            
+    try:
+        with open(TRACKER_FILE, "w") as f:
+            json.dump(active_users, f)
+    except:
+        pass
+        
+    return active_users
 
 # লগইন পোর্টাল
 if not st.session_state.authenticated:
@@ -49,7 +102,7 @@ if not st.session_state.authenticated:
                 st.session_state.authenticated = True
                 st.session_state.is_admin = True
                 st.rerun()
-            elif password_input == "TRADER2026":  # সাধারণ ব্যবহারকারীদের পাসওয়ার্ড
+            elif password_input == "TRADER99":  # সাধারণ ইউজারদের পাসওয়ার্ড (এদের কোনো অ্যাডমিন প্যানেল থাকবে না)
                 st.session_state.authenticated = True
                 st.session_state.is_admin = False
                 st.rerun()
@@ -57,7 +110,12 @@ if not st.session_state.authenticated:
                 st.error("❌ ভুল পাসওয়ার্ড! সঠিক পাসওয়ার্ড দিন।")
     st.stop()
 
-# ৩. অ্যাডমিন প্যানেল (সাইডবার - শুধুমাত্র আপনার জন্য দৃশ্যমান)
+# ইউজার লগইন করার সাথে সাথে তার উপস্থিতি আপডেট করা হচ্ছে
+user_agent = st.context.headers.get("User-Agent", "Unknown")
+role_str = "Admin" if st.session_state.is_admin else "User"
+current_active_dict = update_user_activity(st.session_state.user_id, role_str, user_agent)
+
+# ৩. অ্যাডমিন প্যানেল (সাইডবার - এটি শুধুমাত্র আপনি অ্যাডমিন পাসওয়ার্ড দিলে দেখতে পাবেন, কোনো সাধারণ ইউজার দেখতে পাবে না)
 if st.session_state.is_admin:
     with st.sidebar:
         st.markdown("<h2 style='color: #FFD700; text-align: center;'>👑 Admin Panel</h2>", unsafe_allow_html=True)
@@ -69,24 +127,23 @@ if st.session_state.is_admin:
         except:
             pass
             
-        st.markdown("### 📊 Live Traffic & Stats")
+        active_count = len(current_active_dict)
+        st.markdown("### 📊 Live Traffic Stats")
         st.markdown("<div class='admin-box'>", unsafe_allow_html=True)
-        st.markdown("🟢 **Active Users:** `1 (You)`")
-        st.markdown("👥 **Total Users Today:** `12`")
-        st.markdown("🔴 **Inactive / Offline:** `4`")
+        st.markdown(f"🟢 **Live Active Users:** `{active_count}`")
+        st.markdown(f"💻 **Your Device:** `{current_active_dict.get(st.session_state.user_id, {}).get('device', 'Unknown')}`")
         st.markdown("</div>", unsafe_allow_html=True)
         
-        st.markdown("### 📱 Device Info")
+        st.markdown("### 📱 Connected Users & Devices")
         st.markdown("<div class='admin-box'>", unsafe_allow_html=True)
-        user_agent = st.context.headers.get("User-Agent", "Mobile Device")
-        device_type = "Android / Mobile" if "Mobile" in user_agent else "Desktop / PC"
-        st.markdown(f"💻 **Your Device:** `{device_type}`")
-        st.markdown("🌐 **Server Status:** `Online (Stable)`")
+        for uid, info in current_active_dict.items():
+            badge = "👑 (You/Admin)" if info['role'] == 'Admin' else "👤 (User)"
+            st.markdown(f"• ID: `{uid}` | {info['device']} {badge}")
         st.markdown("</div>", unsafe_allow_html=True)
         
         st.markdown("### ⚙️ Admin Controls")
-        if st.button("🔄 Reset Analytics Data", use_container_width=True):
-            st.success("Analytics reset successfully!")
+        if st.button("🔄 Refresh Live Data", use_container_width=True):
+            st.rerun()
             
         st.markdown("---")
         if st.button("🔒 Logout Admin", use_container_width=True):
@@ -106,7 +163,7 @@ except:
 st.markdown("<h1 class='main-title'>🎯 TSM TRADER 99 - Live Signal Analyzer</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
-# কন্ট্রোল প্যানেল (মোড, ক্লক, টাইমার ও লগআউট)
+# কন্ট্রোল প্যানেল (মোড, লাইভ ক্লক, লাইভ কাউন্টডাউন টাইমার ও লগআউট)
 col_c1, col_c2, col_c3 = st.columns(3)
 
 with col_c1:

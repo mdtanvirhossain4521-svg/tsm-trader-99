@@ -7,6 +7,7 @@ import json
 import os
 import uuid
 from PIL import Image
+from streamlit_autorefresh import st_autorefresh
 
 # ১. পেজ কনফিগারেশন ও ব্রাউজার ট্যাব সেটআপ
 st.set_page_config(
@@ -14,6 +15,9 @@ st.set_page_config(
     page_icon="⚡",
     layout="centered"
 )
+
+# ঘড়ি এবং টাইমার প্রতি ১ সেকেন্ড পরপর নিখুঁত লাইভ আপডেটের জন্য অটো-রিফ্রেশ
+st_autorefresh(interval=1000, limit=None, key="live_clock_refresh")
 
 # স্টাইল ও ডিজাইন কাস্টমাইজেশন
 st.markdown("""
@@ -154,7 +158,7 @@ except:
 st.markdown("<h1 class='main-title'>🎯 TSM TRADER 99 - Live Signal Analyzer</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
-# ৫. কন্ট্রোল প্যানেল ও সম্পূর্ণ লাইভ জাভাস্ক্রিপ্ট ক্লক ও টাইমার
+# ৫. কন্ট্রোল প্যানেল ও নিখুঁত পাইথন-বেসড লাইভ ক্লক ও টাইমার
 col_c1, col_c2 = st.columns([1, 1])
 
 with col_c1:
@@ -171,44 +175,31 @@ with col_c2:
         st.session_state.is_admin = False
         st.rerun()
 
-# রিয়েল-টাইম লাইভ ক্লক এবং কাউন্টডাউন টাইমার (সরাসরি ব্রাউজারে প্রতি সেকেন্ডে আপডেট হবে)
-st.markdown("""
+# লাইভ টাইম ক্যালকুলেশন
+bd_tz = pytz.timezone('Asia/Dhaka')
+utc_tz = pytz.utc
+bd_time = datetime.datetime.now(bd_tz)
+utc_time = datetime.datetime.now(utc_tz)
+remaining_seconds = 60 - bd_time.second
+if remaining_seconds == 60:
+    remaining_seconds = 0
+
+# ইউজার ইন্টারফেসে লাইভ ডিসপ্লে বক্স
+st.markdown(f"""
     <div style="display: flex; justify-content: space-around; background-color: #1E1E1E; padding: 12px; border-radius: 8px; border: 1px solid #00E676; text-align: center; margin-top: 10px;">
         <div>
             <div style="font-size: 11px; color: #AAAAAA;">🇧🇩 BD TIME</div>
-            <div id="bd-clock" style="font-size: 15px; font-weight: bold; color: #00E676;">--:--:-- --</div>
+            <div style="font-size: 15px; font-weight: bold; color: #00E676;">{bd_time.strftime('%I:%M:%S %p')}</div>
         </div>
         <div>
             <div style="font-size: 11px; color: #AAAAAA;">🌐 UTC TIME</div>
-            <div id="utc-clock" style="font-size: 15px; font-weight: bold; color: #00FFCC;">--:--:--</div>
+            <div style="font-size: 15px; font-weight: bold; color: #00FFCC;">{utc_time.strftime('%H:%M:%S')} UTC</div>
         </div>
         <div>
             <div style="font-size: 11px; color: #AAAAAA;">⏳ NEXT CANDLE</div>
-            <div id="candle-timer" style="font-size: 15px; font-weight: bold; color: #FFEB3B;">00:00s</div>
+            <div style="font-size: 15px; font-weight: bold; color: #FFEB3B;">00:{remaining_seconds:02d}s</div>
         </div>
     </div>
-
-    <script>
-    function updateLiveClocks() {
-        const now = new Date();
-        
-        // BD Time (UTC+6)
-        const bdOptions = { timeZone: 'Asia/Dhaka', hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' };
-        document.getElementById('bd-clock').innerText = new Intl.DateTimeFormat('en-US', bdOptions).format(now);
-        
-        // UTC Time
-        const utcOptions = { timeZone: 'UTC', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' };
-        document.getElementById('utc-clock').innerText = new Intl.DateTimeFormat('en-US', utcOptions).format(now) + ' UTC';
-        
-        // Next Candle Countdown (seconds remaining in current minute)
-        const seconds = now.getSeconds();
-        const remaining = 60 - seconds;
-        const formattedSec = remaining < 10 ? '0' + remaining : remaining;
-        document.getElementById('candle-timer').innerText = '00:' + formattedSec + 's';
-    }
-    setInterval(updateLiveClocks, 1000);
-    updateLiveClocks();
-    </script>
 """, unsafe_allow_html=True)
 
 st.markdown("---")

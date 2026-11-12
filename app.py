@@ -7,7 +7,6 @@ import json
 import os
 import uuid
 from PIL import Image
-from streamlit_autorefresh import st_autorefresh
 
 # ১. পেজ কনফিগারেশন ও ব্রাউজার ট্যাব সেটআপ
 st.set_page_config(
@@ -15,9 +14,6 @@ st.set_page_config(
     page_icon="⚡",
     layout="centered"
 )
-
-# লাইভ টাইমার এবং রিয়েল-টাইম ইউজার ট্র্যাকিংয়ের জন্য অটো-রিফ্রেশ (প্রতি ৫ সেকেন্ড পর পর ব্যাকগ্রাউন্ড সিঙ্ক)
-st_autorefresh(interval=5000, limit=None, key="live_tracker_refresh")
 
 # স্টাইল ও ডিজাইন কাস্টমাইজেশন
 st.markdown("""
@@ -51,7 +47,6 @@ def update_user_activity(user_id, role, user_agent):
             
     current_time = time.time()
     
-    # ব্রাউজার ইউজার এজেন্ট থেকে ডিভাইস চেনার সহজ উপায়
     device_name = "Desktop / PC"
     if "Mobile" in user_agent:
         device_name = "Android Mobile"
@@ -64,14 +59,10 @@ def update_user_activity(user_id, role, user_agent):
         "role": role
     }
     
-    # ৩০ সেকেন্ডের বেশি সময় ধরে রেসপন্স না করলে তাদের অফলাইন ধরে ফিল্টার করা হবে
     active_users = {}
-    offline_count = 0
     for uid, info in data.items():
         if current_time - info["last_seen"] < 30:
             active_users[uid] = info
-        else:
-            offline_count += 1
             
     try:
         with open(TRACKER_FILE, "w") as f:
@@ -98,11 +89,11 @@ if not st.session_state.authenticated:
     with col2:
         password_input = st.text_input("Access Password", type="password", placeholder="পাসওয়ার্ড লিখুন...")
         if st.button("Unlock Analyzer", use_container_width=True):
-            if password_input == "2T1A1N2V7I0R":  # আপনার মাস্টার অ্যাডমিন পাসওয়ার্ড
+            if password_input == "2T1A1N2V7I0R":  # মাস্টার অ্যাডমিন পাসওয়ার্ড
                 st.session_state.authenticated = True
                 st.session_state.is_admin = True
                 st.rerun()
-            elif password_input == "TRADER99":  # সাধারণ ইউজারদের পাসওয়ার্ড (এদের কোনো অ্যাডমিন প্যানেল থাকবে না)
+            elif password_input == "TRADER99":  # সাধারণ ইউজারদের পাসওয়ার্ড (কোনো অ্যাডমিন প্যানেল নেই)
                 st.session_state.authenticated = True
                 st.session_state.is_admin = False
                 st.rerun()
@@ -110,12 +101,12 @@ if not st.session_state.authenticated:
                 st.error("❌ ভুল পাসওয়ার্ড! সঠিক পাসওয়ার্ড দিন।")
     st.stop()
 
-# ইউজার লগইন করার সাথে সাথে তার উপস্থিতি আপডেট করা হচ্ছে
+# ইউজার অ্যাক্টিভিটি আপডেট
 user_agent = st.context.headers.get("User-Agent", "Unknown")
 role_str = "Admin" if st.session_state.is_admin else "User"
 current_active_dict = update_user_activity(st.session_state.user_id, role_str, user_agent)
 
-# ৩. অ্যাডমিন প্যানেল (সাইডবার - এটি শুধুমাত্র আপনি অ্যাডমিন পাসওয়ার্ড দিলে দেখতে পাবেন, কোনো সাধারণ ইউজার দেখতে পাবে না)
+# ৩. অ্যাডমিন প্যানেল (সাইডবার - শুধুমাত্র আপনার জন্য দৃশ্যমান)
 if st.session_state.is_admin:
     with st.sidebar:
         st.markdown("<h2 style='color: #FFD700; text-align: center;'>👑 Admin Panel</h2>", unsafe_allow_html=True)
@@ -151,7 +142,7 @@ if st.session_state.is_admin:
             st.session_state.is_admin = False
             st.rerun()
 
-# ৪. মেইন ড্যাশবোর্ড (সকলের জন্য কমন এবং পরিষ্কার লেআউট)
+# ৪. মেইন ড্যাশবোর্ড হেডার
 try:
     logo_img = Image.open("tsm_logo.png")
     col_l1, col_l2, col_l3 = st.columns([2, 1, 2])
@@ -163,8 +154,8 @@ except:
 st.markdown("<h1 class='main-title'>🎯 TSM TRADER 99 - Live Signal Analyzer</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
-# কন্ট্রোল প্যানেল (মোড, লাইভ ক্লক, লাইভ কাউন্টডাউন টাইমার ও লগআউট)
-col_c1, col_c2, col_c3 = st.columns(3)
+# ৫. কন্ট্রোল প্যানেল ও সম্পূর্ণ লাইভ জাভাস্ক্রিপ্ট ক্লক ও টাইমার
+col_c1, col_c2 = st.columns([1, 1])
 
 with col_c1:
     market_mode = st.radio(
@@ -174,26 +165,56 @@ with col_c1:
     )
 
 with col_c2:
-    bd_tz = pytz.timezone('Asia/Dhaka')
-    utc_tz = pytz.utc
-    bd_time = datetime.datetime.now(bd_tz)
-    utc_time = datetime.datetime.now(utc_tz)
-    remaining_seconds = 60 - bd_time.second
-    
-    st.markdown(f"**🇧🇩 BD Time:** `{bd_time.strftime('%I:%M:%S %p')}`")
-    st.markdown(f"**🌐 UTC:** `{utc_time.strftime('%H:%M:%S')}`")
-
-with col_c3:
-    st.markdown(f"**⏳ Next Candle:** `00:{remaining_seconds:02d}s`")
+    st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔒 Lock Analyzer", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.is_admin = False
         st.rerun()
 
+# রিয়েল-টাইম লাইভ ক্লক এবং কাউন্টডাউন টাইমার (সরাসরি ব্রাউজারে প্রতি সেকেন্ডে আপডেট হবে)
+st.markdown("""
+    <div style="display: flex; justify-content: space-around; background-color: #1E1E1E; padding: 12px; border-radius: 8px; border: 1px solid #00E676; text-align: center; margin-top: 10px;">
+        <div>
+            <div style="font-size: 11px; color: #AAAAAA;">🇧🇩 BD TIME</div>
+            <div id="bd-clock" style="font-size: 15px; font-weight: bold; color: #00E676;">--:--:-- --</div>
+        </div>
+        <div>
+            <div style="font-size: 11px; color: #AAAAAA;">🌐 UTC TIME</div>
+            <div id="utc-clock" style="font-size: 15px; font-weight: bold; color: #00FFCC;">--:--:--</div>
+        </div>
+        <div>
+            <div style="font-size: 11px; color: #AAAAAA;">⏳ NEXT CANDLE</div>
+            <div id="candle-timer" style="font-size: 15px; font-weight: bold; color: #FFEB3B;">00:00s</div>
+        </div>
+    </div>
+
+    <script>
+    function updateLiveClocks() {
+        const now = new Date();
+        
+        // BD Time (UTC+6)
+        const bdOptions = { timeZone: 'Asia/Dhaka', hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' };
+        document.getElementById('bd-clock').innerText = new Intl.DateTimeFormat('en-US', bdOptions).format(now);
+        
+        // UTC Time
+        const utcOptions = { timeZone: 'UTC', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' };
+        document.getElementById('utc-clock').innerText = new Intl.DateTimeFormat('en-US', utcOptions).format(now) + ' UTC';
+        
+        // Next Candle Countdown (seconds remaining in current minute)
+        const seconds = now.getSeconds();
+        const remaining = 60 - seconds;
+        const formattedSec = remaining < 10 ? '0' + remaining : remaining;
+        document.getElementById('candle-timer').innerText = '00:' + formattedSec + 's';
+    }
+    setInterval(updateLiveClocks, 1000);
+    updateLiveClocks();
+    </script>
+""", unsafe_allow_html=True)
+
 st.markdown("---")
 st.markdown(f"<p class='sub-text'>Active Mode: <b>{market_mode}</b> | গ্যালারি থেকে চার্টের স্ক্রিনশট আপলোড করুন।</p>", unsafe_allow_html=True)
 
-# ৫. স্ক্রিনশট আপলোড ও এআই সিগন্যাল সেকশন
+# ৬. স্ক্রিনশট আপলোড ও এআই সিগন্যাল সেকশন
 uploaded_file = st.file_uploader("📁 চার্টের স্ক্রিনশট এখানে আপলোড করুন", type=["png", "jpg", "jpeg"])
 
 if uploaded_file is not None:

@@ -121,7 +121,7 @@ if uploaded_file is not None:
                 <p style='margin: 0; color: #FFFFFF;'>Confidence Rate: <b>{st.session_state.confidence_rate}%</b></p>
                 <p style='margin: 5px 0 0 0; font-size: 13px; color: #FFEB3B;'>⏰ Next Candle শুরু হওয়ার সাথে সাথে সঠিক এন্ট্রি নিন।</p>
             </div>
-        """, unsafe_allow_html.True)
+        """, unsafe_allow_html=True)
         
         if st.button("🔄 New Chart Scan"):
             st.session_state.current_signal = random.choice(["CALL (BUY) 🟢", "PUT (SELL) 🔴"])

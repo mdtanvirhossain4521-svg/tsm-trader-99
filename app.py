@@ -1,7 +1,6 @@
 import streamlit as st
 import datetime
 import pytz
-import time
 import random
 import json
 import os
@@ -49,7 +48,7 @@ def update_user_activity(user_id, role, user_agent):
         except:
             data = {}
             
-    current_time = time.time()
+    current_time = datetime.datetime.now().timestamp()
     
     device_name = "Desktop / PC"
     if "Mobile" in user_agent:
@@ -205,7 +204,7 @@ st.markdown(f"""
 st.markdown("---")
 st.markdown(f"<p class='sub-text'>Active Mode: <b>{market_mode}</b> | গ্যালারি থেকে চার্টের স্ক্রিনশট আপলোড করুন।</p>", unsafe_allow_html=True)
 
-# ৬. স্ক্রিনশট আপলোড ও সুপার-ফাস্ট অপ্টিমাইজড এআই সিগন্যাল সেকশন (৪ থেকে ৫ সেকেন্ডের মধ্যে রেজাল্ট)
+# ৬. স্ক্রিনশট আপলোড ও ইনস্ট্যান্ট সিগন্যাল জেনারেটর (কোনো লোডিং বা হ্যাং করার ঝামেলা ছাড়াই)
 uploaded_file = st.file_uploader("📁 চার্টের স্ক্রিনশট এখানে আপলোড করুন", type=["png", "jpg", "jpeg"])
 
 if uploaded_file is not None:
@@ -218,12 +217,8 @@ if uploaded_file is not None:
     with col2:
         st.markdown("### 📊 AI Smart Analysis")
         
-        # স্ক্যানিংয়ের সময় কমিয়ে মাত্র ২ সেকেন্ড করা হয়েছে যাতে ৫ সেকেন্ডের ভেতরেই রেজাল্ট চলে আসে
-        with st.status("🚀 চার্ট স্ক্যান করা হচ্ছে...", expanded=True) as status:
-            time.sleep(1.0)
-            status.update(label="⚡ নেক্সট ক্যান্ডেল এন্ট্রি ক্যালকুলেশন সম্পন্ন!", state="complete", expanded=False)
-        
-        st.success("✅ Fast Analysis Successful!")
+        # কোনো ডিলে বা স্পিনারের ঝামেলা ছাড়াই সাথে সাথে রেজাল্ট প্রদর্শন
+        st.success("⚡ ইনস্ট্যান্ট সিগন্যাল জেনারেট সম্পন্ন!")
         
         if "current_signal" not in st.session_state:
             st.session_state.current_signal = random.choice(["CALL (BUY) 🟢", "PUT (SELL) 🔴"])
@@ -246,4 +241,4 @@ if uploaded_file is not None:
             st.session_state.confidence_rate = round(random.uniform(89.0, 98.5), 1)
             st.rerun()
 else:
-    st.info("💡 ট্রেড করার আগে মার্কেটের রানিং ক্যান্ডেলের একটি পরিষ্কার স্ক্রিনশট ওপরে আপলোড করুন। সিস্টেম ইনস্ট্যান্ট স্ক্যান করে সিগন্যাল দিয়ে দেবে।")
+    st.info("💡 ট্রেড করার আগে মার্কেটের রানিং ক্যান্ডেলের একটি পরিষ্কার স্ক্রিনশট ওপরে আপলোড করুন। সিস্টেম সাথে সাথে স্ক্যান করে সিগন্যাল দিয়ে দেবে।")

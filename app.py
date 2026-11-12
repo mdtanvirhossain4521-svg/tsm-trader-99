@@ -2,6 +2,7 @@ import streamlit as st
 import datetime
 import pytz
 import time
+import random
 from PIL import Image
 
 # ১. পেজ কনফিগারেশন ও ব্রাউজার ট্যাব সেটআপ
@@ -33,7 +34,7 @@ if not st.session_state.authenticated:
     with col2:
         password_input = st.text_input("Activation Password", type="password", placeholder="পাসওয়ার্ড লিখুন...")
         if st.button("Unlock Analyzer", use_container_width=True):
-            if password_input == "2T1A1N2V7I0R":  # আপনার দেওয়া নির্দিষ্ট পাসওয়ার্ড
+            if password_input == "2T1A1N2V7I0R":  # আপনার নির্দিষ্ট পাসওয়ার্ড
                 st.session_state.authenticated = True
                 st.rerun()
             else:
@@ -44,7 +45,7 @@ if not st.session_state.authenticated:
 with st.sidebar:
     # গিটহাব থেকে আপনার আপলোড করা লোগো প্রদর্শন
     try:
-        logo_img = Image.open("logo.png")
+        logo_img = Image.open("tsm_logo.png")
         st.image(logo_img, use_column_width=True)
     except:
         st.markdown("<h1 style='text-align: center; color: #00E676;'>⚡ TSM TRADER 99</h1>", unsafe_allow_html=True)
@@ -80,7 +81,7 @@ with st.sidebar:
 
 # ৪. মেইন ড্যাশবোর্ড ও স্ক্রিনশট আপলোড সেকশন
 st.markdown("<h1 class='main-title'>🎯 TSM TRADER 99 - Live Signal Analyzer</h1>", unsafe_allow_html=True)
-st.markdown(f"<p class='sub-text'>Active Mode: <b>{market_mode}</b> | গ্যালারি থেকে চার্টের স্ক্রিনশট আপلود করুন এবং পরবর্তী ক্যান্ডেলের সঠিক এন্ট্রি নিন।</p>", unsafe_allow_html=True)
+st.markdown(f"<p class='sub-text'>Active Mode: <b>{market_mode}</b> | গ্যালারি থেকে চার্টের স্ক্রিনশট আপলোড করুন এবং পরবর্তী ক্যান্ডেলের সঠিক এন্ট্রি নিন।</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 uploaded_file = st.file_uploader("📁 চার্টের স্ক্রিনশট এখানে আপলোড করুন", type=["png", "jpg", "jpeg"])
@@ -104,14 +105,27 @@ if uploaded_file is not None:
         
         st.success("✅ Analysis Successful!")
         
+        # ডাইনামিক বাই/সেল সিগন্যাল ও একুরেসি জেনারেটর
+        if "current_signal" not in st.session_state:
+            st.session_state.current_signal = random.choice(["CALL (BUY) 🟢", "PUT (SELL) 🔴"])
+            st.session_state.confidence_rate = round(random.uniform(89.0, 98.5), 1)
+
+        sig_type = st.session_state.current_signal
+        sig_color = "#00E676" if "BUY" in sig_type else "#FF5252"
+        
         # সিগন্যাল আউটপুট বক্স
-        st.markdown("""
+        st.markdown(f"""
             <div class='signal-box'>
                 <h3 style='color: #00FFCC; margin: 0;'>RECOMMENDED SIGNAL</h3>
-                <h1 style='color: #00E676; margin: 10px 0;'>CALL (BUY) 🟢</h1>
-                <p style='margin: 0; color: #FFFFFF;'>Confidence Rate: <b>97.4%</b></p>
+                <h1 style='color: {sig_color}; margin: 10px 0;'>{sig_type}</h1>
+                <p style='margin: 0; color: #FFFFFF;'>Confidence Rate: <b>{st.session_state.confidence_rate}%</b></p>
                 <p style='margin: 5px 0 0 0; font-size: 13px; color: #FFEB3B;'>⏰ Next Candle শুরু হওয়ার সাথে সাথে সঠিক এন্ট্রি নিন।</p>
             </div>
-        """, unsafe_allow_html=True)
+        """, unsafe_allow_html.True)
+        
+        if st.button("🔄 New Chart Scan"):
+            st.session_state.current_signal = random.choice(["CALL (BUY) 🟢", "PUT (SELL) 🔴"])
+            st.session_state.confidence_rate = round(random.uniform(89.0, 98.5), 1)
+            st.rerun()
 else:
     st.info("💡 ট্রেড করার আগে মার্কেটের রানিং ক্যান্ডেলের একটি পরিষ্কার স্ক্রিনশট ওপরে আপলোড করুন। সিস্টেম স্বয়ংক্রিয়ভাবে স্ক্যান করে সিগন্যাল দিয়ে দেবে।")

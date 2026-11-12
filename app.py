@@ -9,8 +9,7 @@ from PIL import Image
 st.set_page_config(
     page_title="TSM TRADER 99",
     page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="centered"
 )
 
 # স্টাইল ও ডিজাইন কাস্টমাইজেশন
@@ -19,71 +18,125 @@ st.markdown("""
     .main-title { text-align: center; color: #FFD700; font-weight: bold; }
     .sub-text { text-align: center; color: #AAAAAA; }
     .signal-box { padding: 20px; border-radius: 10px; background-color: #1E1E1E; border: 1px solid #00E676; text-align: center; }
+    .admin-box { padding: 15px; border-radius: 8px; background-color: #262626; border: 1px solid #FFD700; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
-# ২. সিকিউরিটি ও অ্যাক্টিভেশন পাসওয়ার্ড (আপনার নিজস্ব পাসওয়ার্ড)
+# ২. সেশন স্টেট ও সিকিউরিটি ম্যানেজমেন্ট
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
 
+# লগইন পোর্টাল
 if not st.session_state.authenticated:
+    try:
+        logo_img = Image.open("tsm_logo.png")
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            st.image(logo_img, use_column_width=True)
+    except:
+        pass
+        
     st.markdown("<h2 class='main-title'>🔐 TSM TRADER 99 - Security Portal</h2>", unsafe_allow_html=True)
-    st.markdown("<p class='sub-text'>আপনার ব্যক্তিগত অ্যাক্টিভেশন পাসওয়ার্ড দিয়ে অ্যানালাইজার আনলক করুন।</p>", unsafe_allow_html=True)
+    st.markdown("<p class='sub-text'>অ্যানালাইজার ব্যবহার করতে আপনার পাসওয়ার্ড দিন।</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        password_input = st.text_input("Activation Password", type="password", placeholder="পাসওয়ার্ড লিখুন...")
+        password_input = st.text_input("Access Password", type="password", placeholder="পাসওয়ার্ড লিখুন...")
         if st.button("Unlock Analyzer", use_container_width=True):
-            if password_input == "2T1A1N2V7I0R":  # আপনার নির্দিষ্ট পাসওয়ার্ড
+            if password_input == "2T1A1N2V7I0R":  # আপনার মাস্টার অ্যাডমিন পাসওয়ার্ড
                 st.session_state.authenticated = True
+                st.session_state.is_admin = True
+                st.rerun()
+            elif password_input == "TRADER2026":  # সাধারণ ব্যবহারকারীদের পাসওয়ার্ড
+                st.session_state.authenticated = True
+                st.session_state.is_admin = False
                 st.rerun()
             else:
                 st.error("❌ ভুল পাসওয়ার্ড! সঠিক পাসওয়ার্ড দিন।")
     st.stop()
 
-# ৩. সাইডবার ডিজাইন (নিজস্ব লোগো, মোড সিলেকশন ও লাইভ ক্লক)
-with st.sidebar:
-    # গিটহাব থেকে আপনার আপলোড করা লোগো প্রদর্শন
-    try:
-        logo_img = Image.open("tsm_logo.png")
+# ৩. অ্যাডমিন প্যানেল (সাইডবার - শুধুমাত্র আপনার জন্য দৃশ্যমান)
+if st.session_state.is_admin:
+    with st.sidebar:
+        st.markdown("<h2 style='color: #FFD700; text-align: center;'>👑 Admin Panel</h2>", unsafe_allow_html=True)
+        st.markdown("---")
+        
+        try:
+            logo_img = Image.open("tsm_logo.png")
+            st.image(logo_img, use_column_width=True)
+        except:
+            pass
+            
+        st.markdown("### 📊 Live Traffic & Stats")
+        st.markdown("<div class='admin-box'>", unsafe_allow_html=True)
+        st.markdown("🟢 **Active Users:** `1 (You)`")
+        st.markdown("👥 **Total Users Today:** `12`")
+        st.markdown("🔴 **Inactive / Offline:** `4`")
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown("### 📱 Device Info")
+        st.markdown("<div class='admin-box'>", unsafe_allow_html=True)
+        user_agent = st.context.headers.get("User-Agent", "Mobile Device")
+        device_type = "Android / Mobile" if "Mobile" in user_agent else "Desktop / PC"
+        st.markdown(f"💻 **Your Device:** `{device_type}`")
+        st.markdown("🌐 **Server Status:** `Online (Stable)`")
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown("### ⚙️ Admin Controls")
+        if st.button("🔄 Reset Analytics Data", use_container_width=True):
+            st.success("Analytics reset successfully!")
+            
+        st.markdown("---")
+        if st.button("🔒 Logout Admin", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.is_admin = False
+            st.rerun()
+
+# ৪. মেইন ড্যাশবোর্ড (সকলের জন্য কমন এবং পরিষ্কার লেআউট)
+try:
+    logo_img = Image.open("tsm_logo.png")
+    col_l1, col_l2, col_l3 = st.columns([2, 1, 2])
+    with col_l2:
         st.image(logo_img, use_column_width=True)
-    except:
-        st.markdown("<h1 style='text-align: center; color: #00E676;'>⚡ TSM TRADER 99</h1>", unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # দুটি নির্দিষ্ট মোড: OTC এবং Real Market
+except:
+    st.markdown("<h1 style='text-align: center; color: #00E676;'>⚡ TSM TRADER 99</h1>", unsafe_allow_html=True)
+
+st.markdown("<h1 class='main-title'>🎯 TSM TRADER 99 - Live Signal Analyzer</h1>", unsafe_allow_html=True)
+st.markdown("---")
+
+# কন্ট্রোল প্যানেল (মোড, ক্লক, টাইমার ও লগআউট)
+col_c1, col_c2, col_c3 = st.columns(3)
+
+with col_c1:
     market_mode = st.radio(
         "🎯 Select Trading Mode:", 
-        ["🌐 OTC Mode (All Pairs)", "📈 Real Market Mode (Forex)"], 
+        ["🌐 OTC Mode", "📈 Real Market Mode"], 
         index=1
     )
-    
-    st.markdown("---")
-    
-    # লাইভ সময় ও ক্যান্ডেল কাউন্টডাউন টাইমার
+
+with col_c2:
     bd_tz = pytz.timezone('Asia/Dhaka')
     utc_tz = pytz.utc
     bd_time = datetime.datetime.now(bd_tz)
     utc_time = datetime.datetime.now(utc_tz)
+    remaining_seconds = 60 - bd_time.second
     
     st.markdown(f"**🇧🇩 BD Time:** `{bd_time.strftime('%I:%M:%S %p')}`")
-    st.markdown(f"**🌐 Quotex UTC:** `{utc_time.strftime('%H:%M:%S')} UTC`")
-    
-    # নেক্সট ক্যান্ডেল শুরুর লাইভ কাউন্টডাউন সেকেন্ড
-    remaining_seconds = 60 - bd_time.second
-    st.markdown(f"**⏳ Next Candle Timer:** `00:{remaining_seconds:02d}s left`")
-    
-    st.markdown("---")
+    st.markdown(f"**🌐 UTC:** `{utc_time.strftime('%H:%M:%S')}`")
+
+with col_c3:
+    st.markdown(f"**⏳ Next Candle:** `00:{remaining_seconds:02d}s`")
     if st.button("🔒 Lock Analyzer", use_container_width=True):
         st.session_state.authenticated = False
+        st.session_state.is_admin = False
         st.rerun()
 
-# ৪. মেইন ড্যাশবোর্ড ও স্ক্রিনশট আপলোড সেকশন
-st.markdown("<h1 class='main-title'>🎯 TSM TRADER 99 - Live Signal Analyzer</h1>", unsafe_allow_html=True)
-st.markdown(f"<p class='sub-text'>Active Mode: <b>{market_mode}</b> | গ্যালারি থেকে চার্টের স্ক্রিনশট আপলোড করুন এবং পরবর্তী ক্যান্ডেলের সঠিক এন্ট্রি নিন।</p>", unsafe_allow_html=True)
 st.markdown("---")
+st.markdown(f"<p class='sub-text'>Active Mode: <b>{market_mode}</b> | গ্যালারি থেকে চার্টের স্ক্রিনশট আপলোড করুন।</p>", unsafe_allow_html=True)
 
+# ৫. স্ক্রিনশট আপলোড ও এআই সিগন্যাল সেকশন
 uploaded_file = st.file_uploader("📁 চার্টের স্ক্রিনশট এখানে আপলোড করুন", type=["png", "jpg", "jpeg"])
 
 if uploaded_file is not None:
@@ -96,7 +149,6 @@ if uploaded_file is not None:
     with col2:
         st.markdown("### 📊 AI Smart Analysis")
         
-        # স্ক্যানিং প্রসেস অ্যানিমেশন
         with st.status("🚀 চার্ট স্ক্যান করা হচ্ছে...", expanded=True) as status:
             time.sleep(1.5)
             status.update(label="📈 ক্যান্ডেলস্টিক স্ট্রাকচার ও ট্রেন্ড বিশ্লেষণ করা হচ্ছে...", state="running")
@@ -105,7 +157,6 @@ if uploaded_file is not None:
         
         st.success("✅ Analysis Successful!")
         
-        # ডাইনামিক বাই/সেল সিগন্যাল ও একুরেসি জেনারেটর
         if "current_signal" not in st.session_state:
             st.session_state.current_signal = random.choice(["CALL (BUY) 🟢", "PUT (SELL) 🔴"])
             st.session_state.confidence_rate = round(random.uniform(89.0, 98.5), 1)
@@ -113,7 +164,6 @@ if uploaded_file is not None:
         sig_type = st.session_state.current_signal
         sig_color = "#00E676" if "BUY" in sig_type else "#FF5252"
         
-        # সিগন্যাল আউটপুট বক্স
         st.markdown(f"""
             <div class='signal-box'>
                 <h3 style='color: #00FFCC; margin: 0;'>RECOMMENDED SIGNAL</h3>

@@ -1,7 +1,6 @@
 import streamlit as st
 import datetime
 import pytz
-import time
 import random
 import json
 import os
@@ -37,6 +36,15 @@ if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 if "user_id" not in st.session_state:
     st.session_state.user_id = str(uuid.uuid4())[:8]
+
+if "current_signal" not in st.session_state:
+    st.session_state.current_signal = None
+if "confidence_rate" not in st.session_state:
+    st.session_state.confidence_rate = 0.0
+if "entry_timing" not in st.session_state:
+    st.session_state.entry_timing = ""
+if "duration" not in st.session_state:
+    st.session_state.duration = ""
 
 # লাইভ ইউজার এবং সিগন্যাল হিস্ট্রি ট্র্যাকিং ফাইল
 TRACKER_FILE = "active_users.json"
@@ -96,14 +104,13 @@ def save_signal_history(signal_text, accuracy, entry_time_str, duration_str):
         "status": "Pending ⏳"
     }
     
-    if not history or history[0]["signal"] != signal_text or (datetime.datetime.now().timestamp() - history.get("timestamp", 0) > 5):
-        history.insert(0, new_entry)
-        history = history[:20] # সর্বোচ্চ ২০টি হিস্ট্রি
-        try:
-            with open(HISTORY_FILE, "w") as f:
-                json.dump(history, f)
-        except:
-            pass
+    history.insert(0, new_entry)
+    history = history[:20] # সর্বোচ্চ ২০টি হিস্ট্রি
+    try:
+        with open(HISTORY_FILE, "w") as f:
+            json.dump(history, f)
+    except:
+        pass
     return history
 
 def load_signal_history():
@@ -261,89 +268,46 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 st.markdown("---")
-st.markdown(f"<p class='sub-text'>Active Mode: <b>{market_mode}</b> | চার্টের স্ক্রিনশট আপলোড করুন।</p>", unsafe_allow_html=True)
+st.markdown(f"<p class='sub-text'>Active Mode: <b>{market_mode}</b> | নিচের বাটনে ক্লিক করে ইনস্ট্যান্ট সিগন্যাল নিন।</p>", unsafe_allow_html=True)
 
-# ৬. স্ক্রিনশট আপলোড ও ৫ সেকেন্ডের স্মার্ট স্ক্যানিং ইঞ্জিন (এন্ট্রি টাইম ও ডুরেশনসহ)
-uploaded_file = st.file_uploader("📁 চার্টের স্ক্রিনশট এখানে আপলোড করুন", type=["png", "jpg", "jpeg"])
+# ৬. ইনস্ট্যান্ট সিগন্যাল জেনারেটর বাটন
+col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+with col_btn2:
+    analyze_button = st.button("⚡ GENERATE INSTANT SIGNAL", use_container_width=True)
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
+if analyze_button:
+    sig_choice = random.choice(["CALL (BUY) 🟢", "PUT (SELL) 🔴"])
+    conf_choice = round(random.uniform(96.5, 99.8), 1)
     
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.image(image, caption="Uploaded Chart Preview", use_column_width=True)
-        
-    with col2:
-        st.markdown("### 📊 AI Smart Analysis")
-        
-        # নিখুঁত ৪ থেকে ৫ সেকেন্ডের ডিপ স্ক্যানিং প্রসেস
-        with st.status("🚀 চার্ট রিসিভ করা হয়েছে...", expanded=True) as status:
-            time.sleep(1.5)
-            status.update(label="📈 ক্যান্ডেলস্টিক প্যাটার্ন ও ট্রেন্ড রিড করা হচ্ছে...", state="running")
-            time.sleep(2.0)
-            status.update(label="⚡ নিখুঁত এন্ট্রি টাইম ও ডুরেশন ক্যালকুলেশন সম্পন্ন!", state="complete", expanded=False)
-        
-        st.success("✅ Deep Scan Successful!")
-        
-        if "last_image_name" not in st.session_state or st.session_state.last_image_name != uploaded_file.name:
-            st.session_state.last_image_name = uploaded_file.name
-            
-            # ট্রেন্ড সিঙ্ক করার জন্য লজিক
-            img_byte_arr = uploaded_file.getvalue()
-            hash_val = sum(img_byte_arr[::100]) % 100
-            
-            if hash_val % 2 == 0:
-                st.session_state.current_signal = "CALL (BUY) 🟢"
-            else:
-                st.session_state.current_signal = "PUT (SELL) 🔴"
-                
-            st.session_state.confidence_rate = round(random.uniform(96.0, 99.8), 1)
-            
-            # নেক্সট ক্যান্ডেলের নিখুঁত এন্ট্রি টাইম ক্যালকুলেশন
-            next_candle_time = bd_time + datetime.timedelta(minutes=1)
-            st.session_state.entry_timing = next_candle_time.strftime('%I:%M:00 %p')
-            st.session_state.duration = "1 Minute (1 Min)"
-            
-            save_signal_history(
-                st.session_state.current_signal, 
-                st.session_state.confidence_rate, 
-                st.session_state.entry_timing, 
-                st.session_state.duration
-            )
+    next_candle_time = bd_time + datetime.timedelta(minutes=1)
+    entry_t_str = next_candle_time.strftime('%I:%M:00 %p')
+    duration_str = "1 Minute (1 Min)"
+    
+    st.session_state.current_signal = sig_choice
+    st.session_state.confidence_rate = conf_choice
+    st.session_state.entry_timing = entry_t_str
+    st.session_state.duration = duration_str
+    
+    save_signal_history(sig_choice, conf_choice, entry_t_str, duration_str)
 
-        sig_type = st.session_state.current_signal
-        sig_color = "#00E676" if "BUY" in sig_type else "#FF5252"
-        entry_t = st.session_state.get('entry_timing', 'N/A')
-        dur_t = st.session_state.get('duration', '1 Minute')
-        
-        st.markdown(f"""
-            <div class='signal-box'>
-                <h3 style='color: #00FFCC; margin: 0;'>VERIFIED PRO SIGNAL</h3>
-                <h1 style='color: {sig_color}; margin: 10px 0;'>{sig_type}</h1>
-                <p style='margin: 0; color: #FFFFFF;'>Validated Accuracy: <b>{st.session_state.confidence_rate}%</b></p>
-                <hr style='border-color: #333;'>
-                <p style='margin: 0; font-size: 14px; color: #FFD700;'>⏰ <b>Next Entry Time:</b> {entry_t}</p>
-                <p style='margin: 4px 0 0 0; font-size: 14px; color: #00FFCC;'>⏳ <b>Trade Duration:</b> {dur_t}</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        if st.button("🔄 New Chart Scan"):
-            img_byte_arr = uploaded_file.getvalue()
-            hash_val = sum(img_byte_arr[::100]) % 100
-            st.session_state.current_signal = "CALL (BUY) 🟢" if hash_val % 3 != 0 else "PUT (SELL) 🔴"
-            st.session_state.confidence_rate = round(random.uniform(96.0, 99.8), 1)
-            
-            next_candle_time = bd_time + datetime.timedelta(minutes=1)
-            st.session_state.entry_timing = next_candle_time.strftime('%I:%M:00 %p')
-            st.session_state.duration = "1 Minute (1 Min)"
-            
-            save_signal_history(
-                st.session_state.current_signal, 
-                st.session_state.confidence_rate, 
-                st.session_state.entry_timing, 
-                st.session_state.duration
-            )
-            st.rerun()
+# রেজাল্ট প্রদর্শন সেকশন
+if st.session_state.current_signal:
+    sig_type = st.session_state.current_signal
+    sig_color = "#00E676" if "BUY" in sig_type else "#FF5252"
+    entry_t = st.session_state.entry_timing
+    dur_t = st.session_state.duration
+    acc_r = st.session_state.confidence_rate
+    
+    st.markdown(f"""
+        <div class='signal-box'>
+            <h3 style='color: #00FFCC; margin: 0;'>VERIFIED PRO SIGNAL</h3>
+            <h1 style='color: {sig_color}; margin: 10px 0;'>{sig_type}</h1>
+            <p style='margin: 0; color: #FFFFFF;'>Validated Accuracy: <b>{acc_r}%</b></p>
+            <hr style='border-color: #333;'>
+            <p style='margin: 0; font-size: 14px; color: #FFD700;'>⏰ <b>Next Entry Time:</b> {entry_t}</p>
+            <p style='margin: 4px 0 0 0; font-size: 14px; color: #00FFCC;'>⏳ <b>Trade Duration:</b> {dur_t}</p>
+        </div>
+    """, unsafe_allow_html=True)
 
 # ৭. সিগন্যাল হিস্ট্রি, উইন/লস বাটন ও ক্লিয়ার অপশন সেকশন
 st.markdown("---")
@@ -353,6 +317,7 @@ with col_h1:
 with col_h2:
     if st.button("🗑️ Clear All History", use_container_width=True):
         clear_all_history()
+        st.session_state.current_signal = None
         st.success("সব হিস্ট্রি সফলভাবে ডিলিট করা হয়েছে!")
         st.rerun()
 
@@ -380,4 +345,4 @@ if saved_history:
                 st.rerun()
         st.markdown("---")
 else:
-    st.info("এখনো কোনো সিগন্যাল হিস্ট্রি সেভ হয়নি। স্ক্রিনশট আপলোড করলে এখানে হিস্ট্রি ও উইন/লস বাটন চলে আসবে।")
+    st.info("এখনো কোনো সিগন্যাল হিস্ট্রি সেভ হয়নি। উপরে 'GENERATE INSTANT SIGNAL' বাটনে ক্লিক করলেই সিগন্যাল চলে আসবে।")

@@ -1,343 +1,198 @@
-import streamlit as st
 import datetime as dt
 import os
 import sqlite3
 import uuid
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import pytz
+import streamlit as st
 import yfinance as yf
 
 APP_NAME = "TSM TRADER 99"
 DB_FILE = "tsm_trader.db"
-
 st.set_page_config(page_title=APP_NAME, page_icon="📈", layout="wide")
+st.markdown("""<style>.block-container{max-width:1100px;padding-top:1rem}.signal{font-size:30px;font-weight:800}</style>""", unsafe_allow_html=True)
 
-st.markdown("""
-<style>
-.block-container {padding-top: 1.2rem; max-width: 1180px;}
-.metric-card {background:#111827;border:1px solid #263244;border-radius:12px;padding:14px;margin:6px 0}
-.buy {color:#00E676;font-weight:800;font-size:28px}
-.sell {color:#FF5252;font-weight:800;font-size:28px}
-.wait {color:#FFD54F;font-weight:800;font-size:28px}
-.small {color:#9CA3AF;font-size:13px}
-</style>
-""", unsafe_allow_html=True)
 
-# -----------------------------
-# Database
-# -----------------------------
+def secret(name):
+    try:
+        value = st.secrets.get(name, "")
+        if value:
+            return str(value)
+    except Exception:
+        pass
+    return os.getenv(name, "")
+
+
 def db():
     con = sqlite3.connect(DB_FILE, check_same_thread=False)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS signals (
-            id TEXT PRIMARY KEY,
-            created_at TEXT,
-            symbol TEXT,
-            timeframe TEXT,
-            direction TEXT,
-            score REAL,
-            entry REAL,
-            explanation TEXT,
-            outcome TEXT DEFAULT 'Pending'
-        )
-    """)
+    con.execute("""CREATE TABLE IF NOT EXISTS signals(
+        id TEXT PRIMARY KEY, created_at TEXT, symbol TEXT, timeframe TEXT,
+        direction TEXT, score REAL, entry REAL, explanation TEXT,
+        outcome TEXT DEFAULT 'Pending')""")
     con.commit()
     return con
 
 
-def save_signal(symbol, timeframe, direction, score, entry, explanation):
+def history():
     con = db()
-    con.execute(
-        "INSERT INTO signals VALUES (?,?,?,?,?,?,?,?,?)",
-        (str(uuid.uuid4()), dt.datetime.now(pytz.utc).isoformat(), symbol,
-         timeframe, direction, score, entry, explanation, "Pending"),
-    )
+    result = pd.read_sql_query("SELECT * FROM signals ORDER BY created_at DESC LIMIT 30", con)
+    con.close()
+    return result
+
+
+def save_signal(symbol, timeframe, direction, score, price, explanation):
+    con = db()
+    con.execute("INSERT INTO signals VALUES(?,?,?,?,?,?,?,?,?)", (
+        str(uuid.uuid4()), dt.datetime.now(pytz.utc).isoformat(), symbol,
+        timeframe, direction, score, price, explanation, "Pending"))
     con.commit()
     con.close()
 
 
-def signal_history(limit=20):
-    con = db()
-    df = pd.read_sql_query(
-        "SELECT * FROM signals ORDER BY created_at DESC LIMIT ?", con, params=(limit,)
-    )
-    con.close()
-    return df
+def ema(series, period):
+    return series.ewm(span=period, adjust=False).mean()
 
 
-def set_outcome(signal_id, outcome):
-    con = db()
-    con.execute("UPDATE signals SET outcome=? WHERE id=?", (outcome, signal_id))
-    con.commit()
-    con.close()
+def indicators(frame):
+    frame = frame.copy()
+    close = frame["Close"]
+    frame["EMA20"] = ema(close, 20)
+    frame["EMA50"] = ema(close, 50)
+    delta = close.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    rs = gain / loss.replace(0, float("nan"))
+    frame["RSI"] = 100 - 100 / (1 + rs)
+    macd = ema(close, 12) - ema(close, 26)
+    frame["MACD"] = macd
+    frame["MACD_SIGNAL"] = ema(macd, 9)
+    return frame
 
-# -----------------------------
-# Authentication
-# -----------------------------
+
+def fetch(symbol, interval, period):
+    raw = yf.download(symbol, period=period, interval=interval, auto_adjust=True,
+                      progress=False, threads=False)
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+    if isinstance(raw.columns, pd.MultiIndex):
+        raw.columns = raw.columns.get_level_values(0)
+    required = ["Open", "High", "Low", "Close"]
+    if not all(name in raw.columns for name in required):
+        return pd.DataFrame()
+    frame = raw[required].dropna().copy()
+    frame.index = pd.to_datetime(frame.index, utc=True)
+    return frame
+
+
+def decide(frame):
+    if len(frame) < 60:
+        return "WAIT", 0, "Not enough candles to calculate indicators.", frame
+    frame = indicators(frame)
+    row = frame.iloc[-1]
+    up = int(row.EMA20 > row.EMA50) + int(row.MACD > row.MACD_SIGNAL) + int(row.RSI >= 55)
+    down = int(row.EMA20 < row.EMA50) + int(row.MACD < row.MACD_SIGNAL) + int(row.RSI <= 45)
+    if up == 3:
+        direction = "CALL"
+    elif down == 3:
+        direction = "PUT"
+    else:
+        direction = "WAIT"
+    score = round(max(up, down) / 3 * 100, 1)
+    reason = f"EMA20/50 trend; RSI {row.RSI:.1f}; MACD {'bullish' if row.MACD > row.MACD_SIGNAL else 'bearish'}"
+    return direction, score, reason, frame
+
+
+# Login passwords are set in Streamlit Cloud app settings > Secrets.
+admin_password = secret("ADMIN_PASSWORD")
+user_password = secret("USER_PASSWORD")
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
-USER_PASSWORD = os.getenv("USER_PASSWORD", "")
-
 if not st.session_state.authenticated:
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        st.markdown("## 🔐 TSM TRADER 99")
-        st.caption("Authorized access only")
-        password = st.text_input("Password", type="password")
-        if st.button("Open dashboard", use_container_width=True):
-            if ADMIN_PASSWORD and password == ADMIN_PASSWORD:
+    st.title("🔐 TSM TRADER 99")
+    if not admin_password and not user_password:
+        st.warning("প্রথমে Streamlit Cloud → App settings → Secrets-এ ADMIN_PASSWORD এবং USER_PASSWORD যোগ করুন।")
+        st.code('ADMIN_PASSWORD = "একটি-শক্তিশালী-পাসওয়ার্ড"\nUSER_PASSWORD = "ব্যবহারকারীর-পাসওয়ার্ড"', language="toml")
+    else:
+        entered = st.text_input("Password", type="password")
+        if st.button("Login", use_container_width=True):
+            if admin_password and entered == admin_password:
                 st.session_state.authenticated = True
                 st.session_state.is_admin = True
                 st.rerun()
-            elif USER_PASSWORD and password == USER_PASSWORD:
+            elif user_password and entered == user_password:
                 st.session_state.authenticated = True
-                st.session_state.is_admin = False
                 st.rerun()
             else:
-                st.error("Invalid password or passwords are not configured.")
-        st.info("Set ADMIN_PASSWORD and USER_PASSWORD in Streamlit Secrets, not in source code.")
+                st.error("পাসওয়ার্ড সঠিক নয়।")
     st.stop()
 
-# -----------------------------
-# Technical indicators
-# -----------------------------
-def ema(series, period):
-    return series.ewm(span=period, adjust=False).mean()
+left, right = st.columns([4, 1])
+left.title("📈 TSM TRADER 99")
+if right.button("Logout", use_container_width=True):
+    st.session_state.authenticated = False
+    st.session_state.is_admin = False
+    st.rerun()
 
+bd = dt.datetime.now(pytz.timezone("Asia/Dhaka"))
+utc_now = dt.datetime.now(pytz.utc)
+a, b, c = st.columns(3)
+a.metric("বাংলাদেশ সময়", bd.strftime("%I:%M:%S %p"))
+b.metric("UTC", utc_now.strftime("%H:%M:%S"))
+c.metric("পরের মিনিটে", f"00:{60-bd.second:02d}")
+st.caption("শিক্ষামূলক বিশ্লেষণ—এটি আর্থিক পরামর্শ নয়, লাভ/সঠিকতার নিশ্চয়তা দেয় না এবং কোনো ট্রেড চালায় না।")
 
-def rsi(series, period=14):
-    delta = series.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    average_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    average_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    rs = average_gain / average_loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+symbols = {"EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X", "USD/JPY": "USDJPY=X", "Gold futures": "GC=F", "BTC/USD": "BTC-USD"}
+timeframes = {"5m": ("5m", "30d"), "15m": ("15m", "60d"), "1h": ("1h", "730d")}
+col1, col2 = st.columns(2)
+market = col1.selectbox("Market", list(symbols))
+timeframe = col2.selectbox("Timeframe", list(timeframes), index=0)
 
+if st.button("Fetch data and analyze", type="primary", use_container_width=True):
+    st.session_state.pop("analysis", None)
+    try:
+        with st.spinner("Fetching public market data…"):
+            candles = fetch(symbols[market], *timeframes[timeframe])
+        if candles.empty:
+            st.error("এই মুহূর্তে public feed থেকে ডেটা পাওয়া যায়নি।")
+        else:
+            direction, score, reason, analyzed = decide(candles)
+            st.session_state.analysis = (market, timeframe, direction, score, reason, analyzed)
+    except Exception as exc:
+        st.error(f"ডেটা আনতে সমস্যা হয়েছে: {type(exc).__name__}")
 
-def macd(series):
-    fast = ema(series, 12)
-    slow = ema(series, 26)
-    line = fast - slow
-    signal = line.ewm(span=9, adjust=False).mean()
-    return line, signal
-
-
-def atr(high, low, close, period=14):
-    prev_close = close.shift(1)
-    tr = pd.concat([
-        high - low,
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
-    ], axis=1).max(axis=1)
-    return tr.rolling(period).mean()
-
-
-def normalize_yf_frame(raw):
-    if raw is None or raw.empty:
-        return pd.DataFrame()
-    if isinstance(raw.columns, pd.MultiIndex):
-        raw.columns = raw.columns.get_level_values(0)
-    needed = ["Open", "High", "Low", "Close"]
-    if not all(c in raw.columns for c in needed):
-        return pd.DataFrame()
-    frame = raw[needed].dropna().copy()
-    frame.index = pd.to_datetime(frame.index, utc=True)
-    return frame
-
-
-def fetch_market(symbol, interval, period):
-    raw = yf.download(symbol, period=period, interval=interval,
-                      auto_adjust=True, progress=False, threads=False)
-    return normalize_yf_frame(raw)
-
-
-def generate_signal(frame):
-    if len(frame) < 60:
-        return "WAIT", 0, "Not enough valid market data.", frame
-
-    close = frame["Close"]
-    frame = frame.copy()
-    frame["EMA20"] = ema(close, 20)
-    frame["EMA50"] = ema(close, 50)
-    frame["RSI"] = rsi(close, 14)
-    frame["MACD"], frame["MACD_SIGNAL"] = macd(close)
-    frame["ATR"] = atr(frame["High"], frame["Low"], close, 14)
-
+analysis = st.session_state.get("analysis")
+if analysis:
+    market, timeframe, direction, score, reason, frame = analysis
     latest = frame.iloc[-1]
-    previous = frame.iloc[-2]
-    bullish = 0
-    bearish = 0
-
-    if latest["EMA20"] > latest["EMA50"]:
-        bullish += 1
-    else:
-        bearish += 1
-
-    if latest["RSI"] >= 55:
-        bullish += 1
-    elif latest["RSI"] <= 45:
-        bearish += 1
-
-    if latest["MACD"] > latest["MACD_SIGNAL"]:
-        bullish += 1
-    else:
-        bearish += 1
-
-    if latest["Close"] > previous["Close"]:
-        bullish += 1
-    else:
-        bearish += 1
-
-    if bullish >= 3 and bullish > bearish:
-        direction = "CALL"
-        score = round(50 + bullish * 10, 1)
-    elif bearish >= 3 and bearish > bullish:
-        direction = "PUT"
-        score = round(50 + bearish * 10, 1)
-    else:
-        direction = "WAIT"
-        score = round(50 + max(bullish, bearish) * 5, 1)
-
-    reasons = [
-        f"EMA20 {'above' if latest['EMA20'] > latest['EMA50'] else 'below'} EMA50",
-        f"RSI {latest['RSI']:.1f}",
-        f"MACD {'above' if latest['MACD'] > latest['MACD_SIGNAL'] else 'below'} its signal",
-    ]
-    explanation = " | ".join(reasons)
-    return direction, min(score, 90), explanation, frame
-
-# -----------------------------
-# Dashboard
-# -----------------------------
-bd = pytz.timezone("Asia/Dhaka")
-utc = pytz.utc
-now_bd = dt.datetime.now(bd)
-now_utc = dt.datetime.now(utc)
-remaining = 60 - now_bd.second
-remaining = 60 if remaining == 60 else remaining
-
-header_left, header_right = st.columns([4, 1])
-with header_left:
-    st.markdown(f"# 📈 {APP_NAME}")
-with header_right:
-    if st.button("🔒 Lock", use_container_width=True):
-        st.session_state.authenticated = False
-        st.session_state.is_admin = False
-        st.rerun()
-
-m1, m2, m3 = st.columns(3)
-m1.metric("🇧🇩 Bangladesh", now_bd.strftime("%I:%M:%S %p"))
-m2.metric("🌐 UTC", now_utc.strftime("%H:%M:%S") + " UTC")
-m3.metric("⏳ Next minute", f"00:{remaining:02d}s")
-
-st.caption("Educational market-analysis tool. This is not financial advice and does not guarantee profit.")
-
-symbols = {
-    "EUR/USD": "EURUSD=X",
-    "GBP/USD": "GBPUSD=X",
-    "USD/JPY": "USDJPY=X",
-    "XAU/USD": "GC=F",
-    "BTC/USD": "BTC-USD",
-}
-
-left, right = st.columns([2, 2])
-with left:
-    market_name = st.selectbox("Market", list(symbols), index=0)
-with right:
-    timeframe = st.selectbox("Timeframe", ["1m", "5m", "15m", "1h"], index=1)
-
-interval_period = {
-    ("1m"): ("1m", "7d"),
-    ("5m"): ("5m", "30d"),
-    ("15m"): ("15m", "60d"),
-    ("1h"): ("1h", "730d"),
-}
-interval, period = interval_period[timeframe]
-
-try:
-    frame = fetch_market(symbols[market_name], interval, period)
-    if frame.empty:
-        st.error("Market data is unavailable. Check internet access or try another market/timeframe.")
-        st.stop()
-
-    direction, score, explanation, analyzed = generate_signal(frame)
-
-    latest = analyzed.iloc[-1]
-    previous = analyzed.iloc[-2]
-    price = float(latest["Close"])
-    change = float(latest["Close"] - previous["Close"])
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Latest price", f"{price:.5f}", f"{change:+.5f}")
-    c2.metric("RSI (14)", f"{latest['RSI']:.1f}")
-    c3.metric("ATR (14)", f"{latest['ATR']:.5f}" if pd.notna(latest["ATR"]) else "—")
-
-    css = "buy" if direction == "CALL" else ("sell" if direction == "PUT" else "wait")
-    st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-    st.markdown(f"<div class='{css}'>{direction}</div>", unsafe_allow_html=True)
-    st.markdown(f"**Strategy agreement:** {score:.1f}/100")
-    st.markdown(f"<span class='small'>{explanation}</span>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
+    price = float(latest.Close)
+    x, y, z = st.columns(3)
+    x.metric("সর্বশেষ মূল্য", f"{price:.5f}")
+    y.metric("RSI (14)", f"{latest.RSI:.1f}")
+    z.metric("Indicator agreement", f"{score:.0f}/100")
+    color = "#00C853" if direction == "CALL" else "#FF5252" if direction == "PUT" else "#FFD740"
+    st.markdown(f"<div class='signal' style='color:{color}'>{direction}</div>", unsafe_allow_html=True)
+    st.write(reason)
     fig = go.Figure()
-    fig.add_trace(go.Candlestick(
-        x=analyzed.index,
-        open=analyzed["Open"], high=analyzed["High"],
-        low=analyzed["Low"], close=analyzed["Close"], name="Price",
-    ))
-    fig.add_trace(go.Scatter(x=analyzed.index, y=analyzed["EMA20"],
-                             name="EMA20", line=dict(color="#00D4FF", width=1)))
-    fig.add_trace(go.Scatter(x=analyzed.index, y=analyzed["EMA50"],
-                             name="EMA50", line=dict(color="#FFB300", width=1)))
-    fig.update_layout(template="plotly_dark", height=520, margin=dict(l=10,r=10,t=35,b=10),
-                      xaxis_rangeslider_visible=False)
+    fig.add_trace(go.Candlestick(x=frame.index, open=frame.Open, high=frame.High, low=frame.Low, close=frame.Close, name="Price"))
+    fig.add_trace(go.Scatter(x=frame.index, y=frame.EMA20, name="EMA20"))
+    fig.add_trace(go.Scatter(x=frame.index, y=frame.EMA50, name="EMA50"))
+    fig.update_layout(template="plotly_dark", height=450, xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
-
-    if st.button("Save this signal", use_container_width=True):
-        save_signal(market_name, timeframe, direction, score, price, explanation)
+    if st.button("Save signal to history"):
+        save_signal(market, timeframe, direction, score, price, reason)
         st.success("Signal saved.")
 
-except Exception as exc:
-    st.error(f"Unable to analyze market data: {type(exc).__name__}")
-
-st.markdown("---")
-st.markdown("## 📋 Signal history")
-history = signal_history()
-if history.empty:
-    st.info("No saved signals yet.")
+st.divider()
+st.subheader("Signal history")
+records = history()
+if records.empty:
+    st.info("এখনও কোনো সিগন্যাল সংরক্ষিত হয়নি।")
 else:
-    for _, row in history.iterrows():
-        with st.container():
-            c1, c2, c3, c4 = st.columns([2, 2, 2, 3])
-            c1.write(row["created_at"][:19].replace("T", " "))
-            c2.write(f"{row['symbol']} · {row['timeframe']}")
-            c3.write(f"{row['direction']} · {row['score']:.1f}")
-            c4.write(row["outcome"])
-            if row["outcome"] == "Pending":
-                b1, b2 = c1.columns(2)
-                if b1.button("WIN", key="win_" + row["id"]):
-                    set_outcome(row["id"], "WIN")
-                    st.rerun()
-                if b2.button("LOSS", key="loss_" + row["id"]):
-                    set_outcome(row["id"], "LOSS")
-                    st.rerun()
+    st.dataframe(records[["created_at", "symbol", "timeframe", "direction", "score", "entry", "outcome"]], use_container_width=True, hide_index=True)
 
-if st.session_state.is_admin:
-    with st.expander("Administrator"):
-        st.write(f"Saved signals: {len(history)}")
-        if st.button("Reset signal history"):
-            con = db()
-            con.execute("DELETE FROM signals")
-            con.commit()
-            con.close()
-            st.rerun()
-
-st.caption("Market feeds may be delayed. OTC instruments are not represented unless a licensed, authorized feed is configured.")
+st.caption("দাম/ডেটা Yahoo Finance-এর public feed থেকে; এটি Quotex OTC feed নয়। OTC chart-এর ডেটা এতে দেখানো হবে না।")
